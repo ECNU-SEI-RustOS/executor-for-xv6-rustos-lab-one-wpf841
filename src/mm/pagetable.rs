@@ -199,6 +199,30 @@ impl PageTable {
         }
     }
 
+    pub fn vm_print(&self, level: usize) {
+        if level == 0 {
+            println!("page table {:#x}", self as *const _ as usize);
+        }
+
+        for (i, pte) in self.data.iter().enumerate() {
+            if !pte.is_valid() {
+                continue;
+            }
+
+            let indent = (0..(level + 1))
+                .map(|_| "..")
+                .collect::<alloc::vec::Vec<_>>()
+                .join(" ");
+            let pa = pte.as_phys_addr().as_usize();
+            println!("{}{}: pte {:#x} pa {:#x}", indent, i, pte.data, pa);
+
+            if !pte.is_leaf() {
+                let child = unsafe { &*pte.as_page_table() };
+                child.vm_print(level + 1);
+            }
+        }
+    }
+
     /// Convert the page table to be the usize
     /// that can be written in satp register
     pub fn as_satp(&self) -> usize {
