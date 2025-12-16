@@ -6,6 +6,7 @@ use alloc::sync::Arc;
 use core::convert::TryInto;
 use core::fmt::Display;
 use core::mem;
+use core::sync::atomic::Ordering;
 
 use crate::consts::{MAXPATH, MAXARG, MAXARGLEN, fs::MAX_DIR_SIZE};
 use crate::process::PROC_MANAGER;
@@ -39,6 +40,7 @@ pub trait Syscall {
     fn sys_link(&mut self) -> SysResult;
     fn sys_mkdir(&mut self) -> SysResult;
     fn sys_close(&mut self) -> SysResult;
+    fn sys_trace(&mut self) -> SysResult;
 }
 
 impl Syscall for Proc {
@@ -496,6 +498,13 @@ impl Syscall for Proc {
         println!("[{}].close(fd={}), file={:?}", self.excl.lock().pid, fd, file);
 
         drop(file);
+        Ok(0)
+    }
+
+    /// 
+    fn sys_trace(&mut self) -> SysResult {
+        let mask = self.arg_i32(0);
+        self.trace_mask.store(mask as u32, Ordering::Relaxed);
         Ok(0)
     }
 }

@@ -3,7 +3,7 @@ use array_macro::array;
 use alloc::boxed::Box;
 use alloc::sync::Arc;
 use core::mem;
-use core::sync::atomic::{AtomicBool, Ordering};
+use core::sync::atomic::{AtomicBool, AtomicU32, Ordering};
 use core::option::Option;
 use core::ptr;
 use core::cell::UnsafeCell;
@@ -144,7 +144,7 @@ impl ProcData {
     pub fn init_context(&mut self) {
         self.context.clear();
         self.context.set_ra(fork_ret as *const () as usize);
-        self.context.set_sp(self.kstack + PGSIZE*4);
+        self.context.set_sp(self.kstack + PGSIZE*8);
     }
 
     /// Return the process's mutable reference of context
@@ -187,7 +187,7 @@ impl ProcData {
         tf.kernel_satp = satp::read();
         // current kernel stack's content is cleaned
         // after returning to the kernel space
-        tf.kernel_sp = self.kstack + PGSIZE*4;
+        tf.kernel_sp = self.kstack + PGSIZE*8;
         tf.kernel_trap = user_trap as usize;
         tf.kernel_hartid = unsafe { CpuManager::cpu_id() };
 
@@ -381,6 +381,8 @@ pub struct Proc {
     pub data: UnsafeCell<ProcData>,
     /// 标识进程是否被杀死的原子布尔变量，用于调度和信号处理。
     pub killed: AtomicBool,
+    /// 标识进程是否被跟踪的原子无符号32位整数变量，用于调试和跟踪。
+    pub trace_mask: AtomicU32,
 }
 
 impl Proc {
@@ -390,6 +392,7 @@ impl Proc {
             excl: SpinLock::new(ProcExcl::new(), "ProcExcl"),
             data: UnsafeCell::new(ProcData::new()),
             killed: AtomicBool::new(false),
+            trace_mask: AtomicU32::new(0),
         }
     }
 
@@ -466,6 +469,34 @@ impl Proc {
     }
 
     /// # 功能说明
+    /// 定义系统调用名称的数组，用于在调试时显示系统调用名称。
+    const SYSCALL_NAMES: [&'static str; 23] = [
+        "",
+        "fork",
+        "exit",
+        "wait",
+        "pipe",
+        "read",
+        "kill",
+        "exec",
+        "fstat",
+        "chdir",
+        "dup",
+        "getpid",
+        "sbrk",
+        "sleep",
+        "uptime",
+        "open",
+        "write",
+        "mknod",
+        "unlink",
+        "link",
+        "mkdir",
+        "close",
+        "trace",
+    ];
+
+    /// # 功能说明
     /// 处理当前进程发起的系统调用请求。根据 TrapFrame 中寄存器 a7 指定的系统调用号，
     /// 调用对应的系统调用处理函数，并将返回结果写回寄存器 a0。
     ///
@@ -520,8 +551,22 @@ impl Proc {
             19 => self.sys_link(),
             20 => self.sys_mkdir(),
             21 => self.sys_close(),
+            22 => self.sys_trace(),
             _ => {
                 panic!("unknown syscall num: {}", a7);
+            }
+        };
+        {
+            let mask = self.trace_mask.load(Ordering::Relaxed);
+            let bit = 1u32 << (a7 as u32);
+            if (mask & bit) != 0 {
+                let pid = self.excl.lock().pid;
+                let name = *Self::SYSCALL_NAMES.get(a7 as usize).unwrap_or(&"unknown");
+                let ret: isize = match sys_result {
+                    Ok(ret) => ret as isize,
+                    Err(()) => -1,
+                };
+                println!("{}: syscall {} -> {}", pid, name, ret);
             }
         };
         tf.a0 = match sys_result {
@@ -690,6 +735,10 @@ impl Proc {
         
         // copy process name
         cdata.name.copy_from_slice(&pdata.name);
+
+        // copy traced
+        let parent_mask = self.trace_mask.load(Ordering::Relaxed);
+        child.trace_mask.store(parent_mask, Ordering::Relaxed);
 
         let cpid = cexcl.pid;
 

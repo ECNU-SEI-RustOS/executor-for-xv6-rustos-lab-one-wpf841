@@ -74,6 +74,15 @@ pub struct RawQuadPage {
 
 impl RawPage for RawQuadPage {}
 
+ /// Used to alloc octuple-page-sized and page-aligned memory.
+ /// Similar to [`RawSinglePage`].
+ #[repr(C, align(4096))]
+ pub struct RawOctPage {
+     data: [u8; PGSIZE*8]
+ }
+ 
+ impl RawPage for RawOctPage {}
+
 #[derive(Clone, Copy, Debug)]
 pub enum Address {
     Virtual(usize),

@@ -6,7 +6,7 @@ use core::mem;
 use core::sync::atomic::Ordering;
 
 use crate::consts::{NPROC, PGSIZE, TRAMPOLINE, fs::ROOTDEV};
-use crate::mm::{kvm_map, PhysAddr, PteFlag, VirtAddr, RawPage, RawSinglePage, PageTable, RawQuadPage};
+use crate::mm::{kvm_map, PhysAddr, PteFlag, VirtAddr, RawPage, RawSinglePage, PageTable, RawQuadPage, RawOctPage};
 use crate::spinlock::SpinLock;
 use crate::trap::user_trap_ret;
 use crate::fs;
@@ -120,12 +120,12 @@ impl ProcManager {
             // Allocate a page for the process's kernel stack.
             // Map it high in memory, followed by an invalid
             // guard page.
-            let pa = RawQuadPage::new_zeroed() as usize;
+            let pa = RawOctPage::new_zeroed() as usize;
             let va = kstack(pos);
             kvm_map(
                 VirtAddr::try_from(va).unwrap(),
                 PhysAddr::try_from(pa).unwrap(),
-                PGSIZE*4,
+                PGSIZE*8,
                 PteFlag::R | PteFlag::W,
             );
             p.data.get_mut().set_kstack(va);
@@ -619,5 +619,5 @@ unsafe fn fork_ret() -> ! {
 /// - 返回 `usize` 类型的虚拟地址，表示对应进程内核栈的起始地址（栈顶地址）。
 #[inline]
 fn kstack(pos: usize) -> usize {
-    Into::<usize>::into(TRAMPOLINE) - (pos + 1) * 5 * PGSIZE
+    Into::<usize>::into(TRAMPOLINE) - (pos + 1) * 9 * PGSIZE
 }
